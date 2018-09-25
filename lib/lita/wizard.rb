@@ -27,7 +27,7 @@ class Lita::Wizard
         send_message initial_message
       end
       message = step[:label]
-      message = "#{message} (Write done when finished)" if step[:multiline]
+      message = "#{message} #{done_tip_message}" if step[:multiline]
       send_message message
     else
       advance
@@ -35,19 +35,19 @@ class Lita::Wizard
   end
 
   def handle_message
-    if message.body == "abort"
+    if message.body == abort_term
       send_message abort_message
       abort_wizard
       destroy
     elsif step.nil?
-      send_message "Some error occured. Aborting."
+      send_message unexpected_error_message
       destroy
-    elsif message.body == "done" && step[:multiline]
+    elsif message.body == done_term && step[:multiline]
       save
       advance
     elsif valid_response?
       if step[:multiline]
-        values[current_step_index] ||= ""
+        values[current_step_index] ||= ''
         values[current_step_index] << "\n"
         values[current_step_index] << message.body
         values[current_step_index].strip!
@@ -63,7 +63,7 @@ class Lita::Wizard
   end
 
   def save
-    Lita.redis["pending-wizard-#{user_id.downcase}"] = to_json
+    Lita.redis.set("pending-wizard-#{user_id.downcase}", to_json)
   end
 
   def destroy
@@ -102,7 +102,7 @@ class Lita::Wizard
   end
 
   def first_step?
-    current_step_index == 0
+    current_step_index.zero?
   end
 
   def value_for(step_name)
@@ -127,24 +127,37 @@ class Lita::Wizard
 
   def initial_message
     "Great! I'm going to ask you some questions. During this time I cannot take regular commands. " \
-    "You can abort at any time by writing abort"
+    'You can abort at any time by writing abort'
   end
 
   def abort_message
-    "Aborting. Resume your normal operations"
+    'Aborting. Resume your normal operations'
   end
 
   def final_message
     "You're done!"
   end
 
-  def start_wizard
+  def start_wizard; end
+
+  def abort_wizard; end
+
+  def finish_wizard; end
+
+  def done_term
+    'done'
   end
 
-  def abort_wizard
+  def abort_term
+    'abort'
   end
 
-  def finish_wizard
+  def unexpected_error_message
+    'Some error occured. Aborting.'
+  end
+
+  def done_tip_message
+    '(Write done when finished)'
   end
 
   def send_message(body)
@@ -174,15 +187,15 @@ class Lita::Wizard
     end
 
     def restore(robot, message)
-      data = MultiJson.load(Lita.redis["pending-wizard-#{message.user.id.downcase}"])
+      data = MultiJson.load(Lita.redis.get("pending-wizard-#{message.user.id.downcase}"))
       klass = eval(data['class'])
       klass.new(robot, message, data)
-    rescue
+    rescue StandardError
       nil
     end
 
     def pending_wizard?(user_id)
-      Lita.redis["pending-wizard-#{user_id.downcase}"]
+      Lita.redis.get("pending-wizard-#{user_id.downcase}")
     end
 
     def cancel_wizard(user_id)
@@ -198,4 +211,5 @@ class Lita::Wizard
     end
 
   end
+
 end
